@@ -1,0 +1,1161 @@
+// src/main/java/com/example/ruleengine/RuleEngineApplication.java
+package com.example.ruleengine;
+
+import com.example.ruleengine.config.RuleFileConfig;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+
+@SpringBootApplication
+@EnableConfigurationProperties(RuleFileConfig.class)
+public class RuleEngineApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(RuleEngineApplication.class, args);
+    }
+}
+```java
+// src/main/java/com/example/ruleengine/config/RuleFileConfig.java
+package com.example.ruleengine.config;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+/**
+ * Configuration properties for defining a single folder path where all rule files are located.
+ * Loaded from application.properties or application.yml.
+ * Converted to a Java Record for conciseness and immutability.
+ *
+ * This record maps directly to properties prefixed with 'rule.engine' in your configuration files.
+ * Example: 'rule.engine.rules-folder-path=classpath:/rules/'
+ */
+@ConfigurationProperties(prefix = "rule.engine")
+public record RuleFileConfig(
+        String rulesFolderPath
+) {
+}
+```java
+// src/main/java/com/example/ruleengine/model/Action.java
+package com.example.ruleengine.model;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlProperty;
+import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlRootElement;
+
+/**
+ * Represents an action to be performed if a rule's conditions are met.
+ * This class is kept for model completeness but actions are no longer processed.
+ * Converted to a Java Record for conciseness and immutability.
+ */
+@JacksonXmlRootElement(localName = "action")
+public record Action(
+        @JsonProperty("type") @JacksonXmlProperty(localName = "type") String type,
+        @JsonProperty("value") @JacksonXmlProperty(localName = "value") String value) {
+}
+```java
+// src/main/java/com/example/ruleengine/model/ConditionComponent.java
+package com.example.ruleengine.model;
+
+/**
+ * Marker interface for components that can be part of a rule's condition logic.
+ * This allows for polymorphic handling of individual conditions and condition groups.
+ */
+public interface ConditionComponent {}
+```java
+// src/main/java/com/example/ruleengine/model/Condition.java
+package com.example.ruleengine.model;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlProperty;
+import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlRootElement;
+
+/**
+ * Represents a single condition for a rule.
+ * The 'expression' is a full SpEL boolean expression.
+ * Converted to a Java Record for conciseness and immutability.
+ */
+@JacksonXmlRootElement(localName = "condition")
+public record Condition(
+        @JsonProperty("expression") @JacksonXmlProperty(localName = "expression") String expression)
+        implements ConditionComponent {
+}
+```java
+// src/main/java/com/example/ruleengine/model/ConditionGroup.java
+package com.example.ruleengine.model;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
+import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlProperty;
+import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlRootElement;
+
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * Represents a group of conditions that are combined using a logical operator (AND/OR).
+ * This class can contain other ConditionComponents, enabling nested logic.
+ * Converted to a Java Record for conciseness and immutability.
+ */
+@JacksonXmlRootElement(localName = "conditionGroup")
+@JsonTypeInfo(
+    use = JsonTypeInfo.Id.NAME,
+    include = JsonTypeInfo.As.WRAPPER_OBJECT
+)
+@JsonSubTypes({
+    @JsonSubTypes.Type(value = Condition.class, name = "condition"),
+    @JsonSubTypes.Type(value = ConditionGroup.class, name = "conditionGroup")
+})
+public record ConditionGroup(
+        @JsonProperty("logicalOperator") @JacksonXmlProperty(localName = "logicalOperator") String logicalOperator,
+        @JsonProperty("components") @JacksonXmlElementWrapper(localName = "components") @JacksonXmlProperty(localName = "component") List<ConditionComponent> components)
+        implements ConditionComponent {
+
+    public ConditionGroup {
+        if (components != null) {
+            components = Collections.unmodifiableList(components);
+        }
+    }
+}
+```java
+// src/main/java/com/example/ruleengine/model/Rule.java
+package com.example.ruleengine.model;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlProperty;
+import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlRootElement;
+
+/**
+ * Represents a single rule with an ID, name, and a root condition group.
+ * The 'paymentType' field has been removed from here as it's now at the RuleSet level.
+ * Converted to a Java Record for conciseness and immutability.
+ */
+@JacksonXmlRootElement(localName = "rule")
+public record Rule(
+        @JsonProperty("id") @JacksonXmlProperty(localName = "id") String id,
+        @JsonProperty("name") @JacksonXmlProperty(localName = "name") String name,
+        @JsonProperty("rootConditionGroup") @JacksonXmlProperty(localName = "rootConditionGroup") ConditionGroup rootConditionGroup) {
+}
+```java
+// src/main/java/com/example/ruleengine/model/RuleSet.java
+package com.example.ruleengine.model;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
+import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlProperty;
+import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlRootElement;
+
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * A wrapper class to hold a collection of rules, primarily for XML/JSON deserialization.
+ * Now includes a 'paymentType' field to categorize the entire ruleset and a 'conditionExpression'
+ * for more complex ruleset selection.
+ * Converted to a Record for conciseness and immutability.
+ */
+@JacksonXmlRootElement(localName = "ruleSet")
+public record RuleSet(
+        @JsonProperty("paymentType") @JacksonXmlProperty(localName = "paymentType") String paymentType,
+        @JsonProperty("conditionExpression") @JacksonXmlProperty(localName = "conditionExpression") String conditionExpression,
+        @JsonProperty("rules") @JacksonXmlElementWrapper(localName = "rules") @JacksonXmlProperty(localName = "rule") List<Rule> rules) {
+
+    public RuleSet {
+    }
+}
+```java
+// src/main/java/com/example/ruleengine/model/RuleSetMetadata.java
+package com.example.ruleengine.model;
+
+import java.util.List;
+
+/**
+ * A record to hold metadata about a loaded ruleset, including its rules, associated payment type,
+ * and a condition expression for ruleset selection.
+ * This is used internally by the RuleEngineService to manage and filter rulesets.
+ */
+public record RuleSetMetadata(
+        String name,
+        List<Rule> rules,
+        String paymentType,
+        String conditionExpression
+) {
+}
+```java
+// src/main/java/com/example/ruleengine/service/Address.java
+package com.example.ruleengine.service;
+
+/**
+ * Nested DTO: Represents an address.
+ * Converted to a Java Record for conciseness and immutability.
+ */
+public record Address(String street, String city, String zipCode) {
+}
+```java
+// src/main/java/com/example/ruleengine/service/Customer.java
+package com.example.ruleengine.service;
+
+/**
+ * Nested DTO: Represents a customer, containing an Address.
+ * Converted to a Java Record for conciseness and immutability.
+ */
+public record Customer(String customerType, boolean isNewCustomer, Address address) {
+}
+```java
+// src/main/java/com/example/ruleengine/service/InputData.java
+package com.example.ruleengine.service;
+
+/**
+ * A POJO representing input data that rules will be applied to.
+ * Now includes a paymentType field.
+ * Converted to a Java Record for conciseness and immutability.
+ */
+public record InputData(Customer customer, double orderTotal, String paymentType) {
+}
+```java
+// src/main/java/com/example/ruleengine/service/RuleEngineService.java
+package com.example.ruleengine.service;
+
+import com.example.ruleengine.model.Condition;
+import com.example.ruleengine.model.ConditionComponent;
+import com.example.ruleengine.model.ConditionGroup;
+import com.example.ruleengine.model.Rule;
+import com.example.ruleengine.model.RuleSetMetadata;
+import org.springframework.expression.ExpressionParser;
+import org.springframework.expression.spel.standard.SpelExpressionParser;
+import org.springframework.expression.spel.support.StandardEvaluationContext;
+import org.springframework.stereotype.Service;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+/**
+ * The core rule engine service responsible for loading rules and processing input data.
+ * This version processes conditions organized into groups with AND/OR logic and returns a boolean result.
+ * It now dynamically selects a ruleset based on input paymentType and a ruleset-level condition expression.
+ * Optimized with proper logging and streamlined logic using Java 21 record patterns.
+ */
+@Service
+public class RuleEngineService {
+
+    private final Map<String, RuleSetMetadata> loadedRuleSetsMetadata;
+
+    private final ExpressionParser parser = new SpelExpressionParser();
+
+    /**
+     * Constructor for RuleEngineService. Spring will inject the map of loaded rule set metadata.
+     *
+     * @param loadedRuleSetsMetadata A map where keys are rule set names and values are RuleSetMetadata objects.
+     */
+    public RuleEngineService(Map<String, RuleSetMetadata> loadedRuleSetsMetadata) {
+        this.loadedRuleSetsMetadata = Collections.unmodifiableMap(loadedRuleSetsMetadata);
+    }
+
+    /**
+     * Processes the given input data by dynamically selecting the most applicable ruleset.
+     * The selection is based on matching `paymentType` and evaluating the ruleset's `conditionExpression`.
+     * The first ruleset found that matches both criteria will be processed.
+     *
+     * @param inputData The data to evaluate against the rules.
+     * @return true if a matching ruleset was found and at least one rule within it matched, false otherwise.
+     */
+    public boolean process(InputData inputData) {
+        Optional<RuleSetMetadata> selectedRuleset = loadedRuleSetsMetadata.values().stream()
+                .filter(rulesetMetadata -> {
+                    boolean paymentTypeMatches = rulesetMetadata.paymentType() == null || rulesetMetadata.paymentType().isBlank()
+                            || inputData.paymentType() == null || inputData.paymentType().isBlank()
+                            || rulesetMetadata.paymentType().equalsIgnoreCase(inputData.paymentType());
+
+                    if (!paymentTypeMatches) {
+                        return false;
+                    }
+
+                    if (rulesetMetadata.conditionExpression() != null && !rulesetMetadata.conditionExpression().isBlank()) {
+                        StandardEvaluationContext context = new StandardEvaluationContext(inputData);
+                        boolean conditionMet = evaluateSpelExpression(rulesetMetadata.conditionExpression(), context);
+                        if (!conditionMet) {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .findFirst();
+
+        if (selectedRuleset.isEmpty()) {
+            return false;
+        }
+
+        RuleSetMetadata rulesetToProcess = selectedRuleset.get();
+        List<Rule> applicableRules = rulesetToProcess.rules();
+
+        if (applicableRules.isEmpty()) {
+            return false;
+        }
+
+        StandardEvaluationContext context = new StandardEvaluationContext(inputData);
+
+        for (Rule rule : applicableRules) {
+            if (rule.rootConditionGroup() == null) {
+                continue;
+            }
+
+            boolean ruleMatched = evaluateConditionComponent(rule.rootConditionGroup(), context);
+
+            if (ruleMatched) {
+                return true;
+            } else {
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Recursively evaluates a ConditionComponent (either a Condition or a ConditionGroup).
+     * This method traverses the condition tree, evaluating expressions and combining results
+     * based on logical operators.
+     * Uses Java 21 record patterns for concise type checking and component extraction.
+     *
+     * @param component The ConditionComponent to evaluate.
+     * @param context The SpEL evaluation context.
+     * @return true if the component evaluates to true, false otherwise.
+     */
+    private boolean evaluateConditionComponent(ConditionComponent component, StandardEvaluationContext context) {
+        if (component instanceof Condition(String expression)) {
+            boolean result = evaluateSpelExpression(expression, context);
+            return result;
+        } else if (component instanceof ConditionGroup(String logicalOperator, List<ConditionComponent> components)) {
+
+            if (components == null || components.isEmpty()) {
+                return false;
+            }
+
+            boolean groupResult;
+            if ("AND".equalsIgnoreCase(logicalOperator)) {
+                groupResult = true;
+                for (ConditionComponent subComponent : components) {
+                    if (!evaluateConditionComponent(subComponent, context)) {
+                        groupResult = false;
+                        break;
+                    }
+                }
+            } else if ("OR".equalsIgnoreCase(logicalOperator)) {
+                groupResult = false;
+                for (ConditionComponent subComponent : components) {
+                    if (evaluateConditionComponent(subComponent, context)) {
+                        groupResult = true;
+                        break;
+                    }
+                }
+            } else {
+                return false;
+            }
+            return groupResult;
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * Helper method to evaluate a single SpEL boolean expression.
+     *
+     * @param expressionString The SpEL expression to evaluate.
+     * @param context The SpEL evaluation context.
+     * @return true if the expression evaluates to true, false otherwise.
+     */
+    private boolean evaluateSpelExpression(String expressionString, StandardEvaluationContext context) {
+        try {
+            Boolean result = parser.parseExpression(expressionString).getValue(context, Boolean.class);
+            return result != null && result;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+}
+```java
+// src/main/java/com/example/ruleengine/loader/RuleLoader.java
+package com.example.ruleengine.loader;
+
+import com.example.ruleengine.model.RuleSet;
+import java.io.IOException;
+
+/**
+ * Interface for loading rules from a source.
+ * This defines the "wrapper" contract for different file types.
+ * Now returns a complete RuleSet object, including its metadata.
+ */
+public interface RuleLoader {
+    RuleSet loadRules() throws IOException;
+}
+```java
+// src/main/java/com/example/ruleengine/loader/JsonRuleLoader.java
+package com.example.ruleengine.loader;
+
+import com.example.ruleengine.model.RuleSet;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.core.io.ResourceLoader;
+import org.springframework.core.io.Resource;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Collections;
+
+/**
+ * RuleLoader implementation for JSON files.
+ * Uses Jackson ObjectMapper to deserialize JSON into a RuleSet object.
+ * Optimized with proper logging.
+ */
+public class JsonRuleLoader implements RuleLoader {
+
+    private final ObjectMapper objectMapper;
+    private final ResourceLoader resourceLoader;
+    private final String filePath;
+
+    public JsonRuleLoader(ObjectMapper objectMapper, ResourceLoader resourceLoader, String filePath) {
+        this.objectMapper = objectMapper;
+        this.resourceLoader = resourceLoader;
+        this.filePath = filePath;
+    }
+
+    @Override
+    public RuleSet loadRules() throws IOException {
+        Resource resource = resourceLoader.getResource(filePath);
+        if (!resource.exists()) {
+            return new RuleSet(null, null, Collections.emptyList());
+        }
+        try (InputStream inputStream = resource.getInputStream()) {
+            RuleSet ruleSet = objectMapper.readValue(inputStream, RuleSet.class);
+            return new RuleSet(ruleSet.paymentType(), ruleSet.conditionExpression(), ruleSet.rules());
+        } catch (IOException e) {
+            throw e;
+        }
+    }
+}
+```java
+// src/main/java/com/example/ruleengine/loader/XmlRuleLoader.java
+package com.example.ruleengine.loader;
+
+import com.example.ruleengine.model.RuleSet;
+import com.fasterxml.jackson.dataformat.xml.XmlMapper;
+import org.springframework.core.io.ResourceLoader;
+import org.springframework.core.io.Resource;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Collections;
+
+/**
+ * RuleLoader implementation for XML files.
+ * Uses Jackson's XmlMapper to deserialize XML into a RuleSet object.
+ * Optimized with proper logging.
+ */
+public class XmlRuleLoader implements RuleLoader {
+
+    private final XmlMapper xmlMapper;
+    private final ResourceLoader resourceLoader;
+    private final String filePath;
+
+    public XmlRuleLoader(XmlMapper xmlMapper, ResourceLoader resourceLoader, String filePath) {
+        this.xmlMapper = xmlMapper;
+        this.resourceLoader = resourceLoader;
+        this.filePath = filePath;
+    }
+
+    @Override
+    public RuleSet loadRules() throws IOException {
+        Resource resource = resourceLoader.getResource(filePath);
+        if (!resource.exists()) {
+            return new RuleSet(null, null, Collections.emptyList());
+        }
+        try (InputStream inputStream = resource.getInputStream()) {
+            RuleSet ruleSet = xmlMapper.readValue(inputStream, RuleSet.class);
+            return new RuleSet(ruleSet.paymentType(), ruleSet.conditionExpression(), ruleSet.rules());
+        } catch (IOException e) {
+            throw e;
+        }
+    }
+}
+```java
+// src/main/java/com/example/ruleengine/loader/TextRuleLoader.java
+package com.example.ruleengine.loader;
+
+import com.example.ruleengine.model.Condition;
+import com.example.ruleengine.model.ConditionGroup;
+import com.example.ruleengine.model.Rule;
+import com.example.ruleengine.model.RuleSet;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
+import org.springframework.util.FileCopyUtils;
+
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
+import java.util.Arrays;
+
+/**
+ * RuleLoader implementation for plain text files.
+ * This loader now expects the first non-empty, non-comment line to be the paymentType,
+ * and the second non-empty, non-comment line to be the conditionExpression for the ruleset.
+ * Subsequent lines are treated as individual SpEL rule expressions.
+ * Optimized with proper logging.
+ */
+public class TextRuleLoader implements RuleLoader {
+
+    private final ResourceLoader resourceLoader;
+    private final String filePath;
+    private final AtomicInteger ruleCounter = new AtomicInteger(1);
+
+    public TextRuleLoader(ResourceLoader resourceLoader, String filePath) {
+        this.resourceLoader = resourceLoader;
+        this.filePath = filePath;
+    }
+
+    @Override
+    public RuleSet loadRules() throws IOException {
+        Resource resource = resourceLoader.getResource(filePath);
+        if (!resource.exists()) {
+            return new RuleSet(null, null, Collections.emptyList());
+        }
+
+        String paymentType = null;
+        String conditionExpression = null;
+        List<Rule> rules = new ArrayList<>();
+
+        try (Reader reader = new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8)) {
+            String fileContent = FileCopyUtils.copyToString(reader);
+            List<String> lines = Arrays.stream(fileContent.split("\\r?\\n"))
+                                       .map(String::trim)
+                                       .filter(line -> !line.isEmpty() && !line.startsWith("#"))
+                                       .collect(Collectors.toList());
+
+            if (lines.size() >= 1) {
+                paymentType = lines.get(0);
+            }
+            if (lines.size() >= 2) {
+                conditionExpression = lines.get(1);
+            }
+
+            for (int i = 2; i < lines.size(); i++) {
+                String ruleLine = lines.get(i);
+                try {
+                    Condition condition = new Condition(ruleLine);
+                    ConditionGroup rootGroup = new ConditionGroup("AND", List.of(condition));
+
+                    String ruleId = "R-TEXT-" + String.format("%03d", ruleCounter.getAndIncrement());
+                    String ruleName = "Text Rule " + ruleId + " - " + ruleLine;
+                    rules.add(new Rule(ruleId, ruleName, rootGroup));
+                } catch (Exception e) {
+                    throw new IOException("Error processing rule line '" + ruleLine + "' from file " + filePath + ": " + e.getMessage(), e);
+                }
+            }
+        } catch (IOException e) {
+            throw e;
+        }
+        return new RuleSet(paymentType, conditionExpression, rules);
+    }
+}
+```java
+// src/main/java/com/example/ruleengine/loader/RuleLoaderConfig.java
+package com.example.ruleengine.loader;
+
+import com.example.ruleengine.config.RuleFileConfig;
+import com.example.ruleengine.model.Rule;
+import com.example.ruleengine.model.RuleSet;
+import com.example.ruleengine.model.RuleSetMetadata;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.xml.XmlMapper;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+/**
+ * Spring configuration for providing the correct RuleLoader.
+ * This configuration is responsible for:
+ * 1. Defining ObjectMapper and XmlMapper beans for JSON and XML deserialization.
+ * 2. Scanning a configured folder for rule files (JSON, XML, Text) by directly traversing the file system.
+ * 3. Aggregating rules from all found files into a map of RuleSetMetadata, keyed by their filename (without extension).
+ * 4. Providing this map of rule sets metadata as a bean to the application.
+ *
+ * It uses a centralized map of loader factories to avoid redundant conditional logic.
+ *
+ * IMPORTANT: This direct file system traversal approach for 'classpath:' resources
+ * will only work reliably when running the application from an IDE or when the
+ * 'rulesFolderPath' points to an actual directory on the file system.
+ * It will likely FAIL if the application is packaged as a standard executable JAR,
+ * as resources inside a JAR are not accessible as file system paths.
+ * For JAR-packaged applications, `PathMatchingResourcePatternResolver` is the
+ * recommended approach for scanning classpath resources.
+ */
+@Configuration
+public class RuleLoaderConfig {
+
+    private final RuleFileConfig ruleFileConfig;
+    private final ResourceLoader resourceLoader;
+    private final ObjectMapper objectMapper;
+    private final XmlMapper xmlMapper;
+    private final Map<String, Function<String, RuleLoader>> loaderFactories;
+
+    /**
+     * Constructor for RuleLoaderConfig. Spring will inject dependencies.
+     *
+     * @param ruleFileConfig Configuration properties for rule file paths.
+     * @param resourceLoader Spring's ResourceLoader for accessing files.
+     * @param objectMapper Jackson ObjectMapper for JSON deserialization.
+     * @param xmlMapper Jackson XmlMapper for XML deserialization.
+     */
+    public RuleLoaderConfig(RuleFileConfig ruleFileConfig, ResourceLoader resourceLoader,
+                            ObjectMapper objectMapper, XmlMapper xmlMapper) {
+        this.ruleFileConfig = ruleFileConfig;
+        this.resourceLoader = resourceLoader;
+        this.objectMapper = objectMapper;
+        this.xmlMapper = xmlMapper;
+
+        this.loaderFactories = Map.of(
+            "json", filePath -> new JsonRuleLoader(this.objectMapper, this.resourceLoader, filePath),
+            "xml", filePath -> new XmlRuleLoader(this.xmlMapper, this.resourceLoader, filePath),
+            "txt", filePath -> new TextRuleLoader(this.resourceLoader, filePath)
+        );
+    }
+
+    /**
+     * Provides a singleton ObjectMapper bean.
+     *
+     * @return An ObjectMapper instance.
+     */
+    @Bean
+    public ObjectMapper objectMapper() {
+        return new ObjectMapper();
+    }
+
+    /**
+     * Provides a singleton XmlMapper bean.
+     *
+     * @return An XmlMapper instance.
+     */
+    @Bean
+    public XmlMapper xmlMapper() {
+        return new XmlMapper();
+    }
+
+    /**
+     * This bean scans the configured folder and aggregates rules from all
+     * JSON, XML, and Text files found within it into a map of rule sets metadata.
+     *
+     * @return A Map where keys are rule set names (filenames without extension) and values are RuleSetMetadata objects.
+     */
+    @Bean
+    public Map<String, RuleSetMetadata> loadedRuleSetsMetadata() {
+        Map<String, RuleSetMetadata> ruleSetsMap = new HashMap<>();
+        String rulesFolderPath = ruleFileConfig.rulesFolderPath();
+
+        if (rulesFolderPath == null || rulesFolderPath.isBlank()) {
+            return Collections.emptyMap();
+        }
+
+        try {
+            Resource folderResource = resourceLoader.getResource(rulesFolderPath);
+            File folderFile = folderResource.getFile();
+
+            if (!folderFile.isDirectory()) {
+                throw new IOException("Configured rules folder path is not a directory: " + rulesFolderPath);
+            }
+
+            try (Stream<Path> walk = Files.walk(folderFile.toPath())) {
+                List<Path> ruleFiles = walk
+                    .filter(Files::isRegularFile)
+                    .filter(path -> {
+                        String fileName = path.getFileName().toString();
+                        String fileExtension = getFileExtension(fileName);
+                        return loaderFactories.containsKey(fileExtension.toLowerCase());
+                    })
+                    .collect(Collectors.toList());
+
+                for (Path ruleFilePath : ruleFiles) {
+                    String filename = ruleFilePath.getFileName().toString();
+                    String fileExtension = getFileExtension(filename);
+                    String filePath = ruleFilePath.toUri().toString();
+                    String ruleSetName = getRuleSetName(filename);
+
+                    Function<String, RuleLoader> factory = loaderFactories.get(fileExtension.toLowerCase());
+
+                    try {
+                        RuleLoader ruleLoader = factory.apply(filePath);
+                        RuleSet ruleSet = ruleLoader.loadRules();
+
+                        ruleSetsMap.put(ruleSetName, new RuleSetMetadata(
+                                ruleSetName,
+                                ruleSet.rules(),
+                                ruleSet.paymentType(),
+                                ruleSet.conditionExpression()
+                        ));
+                    } catch (IOException e) {
+                        throw new RuntimeException("Error loading rules from " + fileExtension + " file: " + filePath + ". " + e.getMessage(), e);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Error scanning rules folder " + rulesFolderPath + ": " + e.getMessage(), e);
+        }
+
+        return Collections.unmodifiableMap(ruleSetsMap);
+    }
+
+    /**
+     * Extracts the file extension from a given filename.
+     *
+     * @param filename The name of the file.
+     * @return The file extension (e.g., "json", "xml", "txt"), or an empty string if no extension is found.
+     */
+    private String getFileExtension(String filename) {
+        int dotIndex = filename.lastIndexOf('.');
+        return (dotIndex == -1) ? "" : filename.substring(dotIndex + 1);
+    }
+
+    /**
+     * Derives a logical rule set name from the filename by removing the extension.
+     *
+     * @param filename The name of the file.
+     * @return The rule set name.
+     */
+    private String getRuleSetName(String filename) {
+        int dotIndex = filename.lastIndexOf('.');
+        return (dotIndex == -1) ? filename : filename.substring(0, dotIndex);
+    }
+}
+```java
+// src/main/java/com/example/ruleengine/runner/RuleEngineCommandLineRunner.java
+package com.example.ruleengine.runner;
+
+import com.example.ruleengine.service.Address;
+import com.example.ruleengine.service.Customer;
+import com.example.ruleengine.service.InputData;
+import com.example.ruleengine.service.RuleEngineService;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.stereotype.Component;
+
+/**
+ * CommandLineRunner to demonstrate the rule engine functionality on application startup.
+ * It now demonstrates how the RuleEngineService dynamically selects a ruleset
+ * based on input data, paymentType, and ruleset-level condition expressions.
+ * Optimized with proper logging.
+ */
+@Component
+public class RuleEngineCommandLineRunner implements CommandLineRunner {
+
+    private final RuleEngineService ruleEngineService;
+
+    public RuleEngineCommandLineRunner(RuleEngineService ruleEngineService) {
+        this.ruleEngineService = ruleEngineService;
+    }
+
+    @Override
+    public void run(String... args) throws Exception {
+
+        // --- Rulesets available and their properties ---
+        // rules-discount: paymentType="CreditCard", conditionExpression="inputData.orderTotal > 50.0"
+        // rules-loyalty-fees: paymentType="Universal", conditionExpression="customer.customerType == 'Existing'"
+        // rules-text: paymentType="TextPayment", conditionExpression="inputData.customer.isNewCustomer == true"
+
+        // Scenario 1: Input matches 'rules-discount' (CreditCard & orderTotal > 50)
+        // Expected: rules-discount ruleset selected, R001 matches
+        InputData input1 = new InputData(new Customer("New", true, new Address("123 Main St", "New York", "10001")), 150.00, "CreditCard");
+        boolean result1 = ruleEngineService.process(input1);
+        System.out.println("Scenario 1 Result: " + (result1 ? "A rule matched!" : "No rule matched."));
+
+
+        // Scenario 2: Input does NOT match 'rules-discount' (paymentType mismatch)
+        // Expected: rules-discount ruleset skipped, no other ruleset matches this combination
+        InputData input2 = new InputData(new Customer("New", true, new Address("123 Main St", "New York", "10001")), 150.00, "PayPal");
+        boolean result2 = ruleEngineService.process(input2);
+        System.out.println("Scenario 2 Result: " + (result2 ? "A rule matched!" : "No rule matched."));
+
+
+        // Scenario 3: Input does NOT match 'rules-discount' (conditionExpression not met)
+        // Expected: rules-discount ruleset skipped, no other ruleset matches this combination
+        InputData input3 = new InputData(new Customer("New", true, new Address("123 Main St", "New York", "10001")), 30.00, "CreditCard");
+        boolean result3 = ruleEngineService.process(input3);
+        System.out.println("Scenario 3 Result: " + (result3 ? "A rule matched!" : "No rule matched."));
+
+
+        // Scenario 4: Input matches 'rules-loyalty-fees' (Universal paymentType, Existing Customer)
+        // Expected: rules-loyalty-fees ruleset selected, R002 matches
+        InputData input4 = new InputData(new Customer("Existing", false, new Address("456 Oak Ave", "Los Angeles", "90001")), 250.00, "AnyType");
+        boolean result4 = ruleEngineService.process(input4);
+        System.out.println("Scenario 4 Result: " + (result4 ? "A rule matched!" : "No rule matched."));
+
+
+        // Scenario 5: Input does NOT match 'rules-loyalty-fees' (conditionExpression not met - New Customer)
+        // Expected: rules-loyalty-fees ruleset skipped, no other ruleset matches
+        InputData input5 = new InputData(new Customer("New", false, new Address("789 Pine Ln", "Chicago", "60601")), 60.00, "DebitCard");
+        boolean result5 = ruleEngineService.process(input5);
+        System.out.println("Scenario 5 Result: " + (result5 ? "A rule matched!" : "No rule matched."));
+
+
+        // Scenario 6: Input matches 'rules-text' (TextPayment, New Customer)
+        // Expected: rules-text ruleset selected, first rule matches
+        InputData input6 = new InputData(new Customer("New", false, new Address("1 Text St", "Text City", "12345")), 250.0, "TextPayment");
+        boolean result6 = ruleEngineService.process(input6);
+        System.out.println("Scenario 6 Result: " + (result6 ? "A rule matched!" : "No rule matched."));
+
+
+        // Scenario 7: Input does NOT match 'rules-text' (conditionExpression not met - Existing Customer)
+        // Expected: rules-text ruleset skipped, no other ruleset matches
+        InputData input7 = new InputData(new Customer("Existing", false, new Address("1 Text St", "Text City", "12345")), 250.0, "TextPayment");
+        boolean result7 = ruleEngineService.process(input7);
+        System.out.println("Scenario 7 Result: " + (result7 ? "A rule matched!" : "No rule matched."));
+
+
+        // Scenario 8: No ruleset matches (e.g., paymentType and condition don't align with any ruleset)
+        // Expected: No ruleset selected, no rule matches
+        InputData input8 = new InputData(new Customer("Guest", false, new Address("999 Unknown St", "Nowhere", "00000")), 10.00, "Crypto");
+        boolean result8 = ruleEngineService.process(input8);
+        System.out.println("Scenario 8 Result: " + (result8 ? "A rule matched!" : "No rule matched."));
+
+    }
+}
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<ruleSet>
+    <paymentType>CreditCard</paymentType>
+    <conditionExpression>orderTotal > 50.0</conditionExpression>
+    <rules>
+        <rule>
+            <id>R001</id>
+            <name>New Customer Welcome Discount</name>
+            <rootConditionGroup>
+                <logicalOperator>AND</logicalOperator>
+                <components>
+                    <condition>
+                        <expression>customer.isNewCustomer == true</expression>
+                    </condition>
+                    <condition>
+                        <expression>orderTotal > 100.0</expression>
+                    </condition>
+                </components>
+            </rootConditionGroup>
+        </rule>
+        <rule>
+            <id>R004</id>
+            <name>High Value Customer Discount</name>
+            <rootConditionGroup>
+                <logicalOperator>AND</logicalOperator>
+                <components>
+                    <condition>
+                        <expression>orderTotal > 500.0</expression>
+                    </condition>
+                    <condition>
+                        <expression>customer.customerType == 'Existing'</expression>
+                    </condition>
+                </components>
+            </rootConditionGroup>
+        </rule>
+    </rules>
+</ruleSet>
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<ruleSet>
+    <paymentType>Universal</paymentType>
+    <conditionExpression>customer.customerType == 'Existing'</conditionExpression>
+    <rules>
+        <rule>
+            <id>R002</id>
+            <name>Loyalty Program Bonus (Nested OR)</name>
+            <rootConditionGroup>
+                <logicalOperator>AND</logicalOperator>
+                <components>
+                    <condition>
+                        <expression>customer.customerType == 'Existing'</expression>
+                    </condition>
+                    <conditionGroup>
+                        <logicalOperator>OR</logicalOperator>
+                        <components>
+                            <condition>
+                                <expression>orderTotal > 200.0</condition>
+                            </condition>
+                            <condition>
+                                <expression>customer.isNewCustomer == true</condition>
+                            </condition>
+                        </components>
+                    </conditionGroup>
+                </components>
+            </rootConditionGroup>
+        </rule>
+        <rule>
+            <id>R003</id>
+            <name>Small Order Processing Fee - General</name>
+            <rootConditionGroup>
+                <logicalOperator>AND</logicalOperator>
+                <components>
+                    <condition>
+                        <expression>orderTotal &lt; 75.0</expression>
+                    </condition>
+                </components>
+            </rootConditionGroup>
+        </rule>
+        <rule>
+            <id>R005</id>
+            <name>Small Order Processing Fee - Specific City OR Other City</name>
+            <rootConditionGroup>
+                <logicalOperator>AND</logicalOperator>
+                <components>
+                    <condition>
+                        <expression>orderTotal &lt; 100.0</expression>
+                    </condition>
+                    <conditionGroup>
+                        <logicalOperator>OR</logicalOperator>
+                        <components>
+                            <condition>
+                                <expression>customer.address.city == 'Chicago'</condition>
+                            </condition>
+                            <condition>
+                                <expression>customer.address.city == 'Springfield'</condition>
+                            </condition>
+                        </components>
+                    </conditionGroup>
+                </components>
+            </rootConditionGroup>
+        </rule>
+    </rules>
+</ruleSet>
+```json
+{
+  "rules": [
+    {
+      "id": "R001",
+      "name": "New Customer Welcome Discount",
+      "rootConditionGroup": {
+        "logicalOperator": "AND",
+        "components": [
+          {
+            "condition": {
+              "expression": "customer.isNewCustomer == true"
+            }
+          },
+          {
+            "condition": {
+              "expression": "orderTotal > 100.0"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "R004",
+      "name": "High Value Customer Discount",
+      "rootConditionGroup": {
+        "logicalOperator": "AND",
+        "components": [
+          {
+            "condition": {
+              "expression": "orderTotal > 500.0"
+            }
+          },
+          {
+            "condition": {
+              "expression": "customer.customerType == 'Existing'"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "paymentType": "CreditCard",
+  "conditionExpression": "orderTotal > 50.0"
+}
+```json
+{
+  "rules": [
+    {
+      "id": "R002",
+      "name": "Loyalty Program Bonus (Nested OR)",
+      "rootConditionGroup": {
+        "logicalOperator": "AND",
+        "components": [
+          {
+            "condition": {
+              "expression": "customer.customerType == 'Existing'"
+            }
+          },
+          {
+            "conditionGroup": {
+              "logicalOperator": "OR",
+              "components": [
+                {
+                  "condition": {
+                    "expression": "orderTotal > 200.0"
+                  }
+                },
+                {
+                  "condition": {
+                    "expression": "customer.isNewCustomer == true"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "R003",
+      "name": "Small Order Processing Fee - General",
+      "rootConditionGroup": {
+        "logicalOperator": "AND",
+        "components": [
+          {
+            "condition": {
+              "expression": "orderTotal < 75.0"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "R005",
+      "name": "Small Order Processing Fee - Specific City OR Other City",
+      "rootConditionGroup": {
+        "logicalOperator": "AND",
+        "components": [
+          {
+            "condition": {
+              "expression": "orderTotal < 100.0"
+            }
+          },
+          {
+            "conditionGroup": {
+              "logicalOperator": "OR",
+              "components": [
+                {
+                  "condition": {
+                    "expression": "customer.address.city == 'Chicago'"
+                  }
+                },
+                {
+                  "condition": {
+                    "expression": "customer.address.city == 'Springfield'"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "paymentType": "Universal",
+  "conditionExpression": "customer.customerType == 'Existing'"
+}
+```properties
+# src/main/resources/application.properties
+
+rule.engine.rules-folder-path=classpath:/rules/
+
+logging.level.com.example.ruleengine=DEBUG
+```text
+# src/main/resources/rules/rules-text.txt
+
+TextPayment
+inputData.customer.isNewCustomer == true
+(customer.customerType == 'Existing') and ((orderTotal > 200.0) or (customer.isNewCustomer == true))
+orderTotal < 75.0
+(orderTotal < 100.0) and ((customer.address.city == 'Chicago') or (customer.address.city == 'Springfield'))
+customer.address.zipCode == '10001' and orderTotal > 10.0
+customer.customerType == 'New' or customer.address.city == 'Dallas'
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="[http://maven.apache.org/POM/4.0.0](http://maven.apache.org/POM/4.0.0)" xmlns:xsi="[http://www.w3.org/2001/XMLSchema-instance](http://www.w3.org/2001/XMLSchema-instance)"
+         xsi:schemaLocation="[http://maven.apache.org/POM/4.0.0](http://maven.apache.org/POM/4.0.0) [https://maven.apache.org/xsd/maven-4.0.0.xsd](https://maven.apache.org/xsd/maven-4.0.0.xsd)">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.5</version>
+        <relativePath/>
+    </parent>
+    <groupId>com.example</groupId>
+    <artifactId>rule-engine</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>rule-engine</name>
+    <description>Spring Boot Rule Engine with Configurable Rules</description>
+
+    <properties>
+        <java.version>21</java.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-xml</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-expression</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-core</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
