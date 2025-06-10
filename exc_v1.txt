@@ -1,0 +1,1258 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.0</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+    <groupId>com.example</groupId>
+    <artifactId>report-service</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>report-service</name>
+    <description>Configuration-Driven Excel Report Generation Service</description>
+
+    <properties>
+        <java.version>21</java.version>
+    </properties>
+
+    <dependencies>
+        <!-- Spring Boot Starters -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- Apache POI for Excel generation -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+
+        <!-- Lombok for boilerplate code reduction -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Spring Expression Language (SpEL) -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Test Starter -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
+```java
+// src/main/java/com/example/reportservice/ReportServiceApplication.java
+package com.example.reportservice;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+/**
+ * Main entry point for the Spring Boot Excel Report Generation Service application.
+ */
+@SpringBootApplication
+public class ReportServiceApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(ReportServiceApplication.class, args);
+    }
+}
+```java
+// src/main/java/com/example/reportservice/dto/ReportData.java
+package com.example.reportservice.dto;
+
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PastOrPresent;
+
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * DTO representing the business data payload for report generation.
+ * This DTO should contain no Excel-specific information.
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class ReportData {
+    @NotBlank(message = "Report title cannot be blank")
+    private String reportTitle;
+
+    @NotBlank(message = "Department cannot be blank")
+    private String department;
+
+    @NotNull(message = "Generation date cannot be null")
+    @PastOrPresent(message = "Generation date cannot be in the future")
+    private LocalDate generationDate;
+
+    // A list of items to be displayed in a tabular format (e.g., sales records)
+    @NotNull(message = "Product sales data cannot be null")
+    private List<ProductSale> productSales;
+
+    // Additional summary data or key-value pairs that can be mapped to individual cells
+    private Map<String, Object> summaryData;
+
+    /**
+     * Inner class representing a single product sale record.
+     */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class ProductSale {
+        @NotBlank(message = "Product name cannot be blank")
+        private String productName;
+        @NotBlank(message = "Category cannot be blank")
+        private String category;
+        @NotNull(message = "Quantity sold cannot be null")
+        private Integer quantity;
+        @NotNull(message = "Unit price cannot be null")
+        private Double unitPrice;
+        @NotNull(message = "Sale date cannot be null")
+        @PastOrPresent(message = "Sale date cannot be in the future")
+        private LocalDate saleDate;
+    }
+}
+```java
+// src/main/java/com/example/reportservice/config/CellAlignment.java
+package com.example.reportservice.config;
+
+/**
+ * Enum to define supported cell alignments for styling.
+ */
+public enum CellAlignment {
+    LEFT, CENTER, RIGHT, TOP, BOTTOM, JUSTIFY
+}
+```java
+// src/main/java/com/example/reportservice/config/StyleDefinition.java
+package com.example.reportservice.config;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+/**
+ * Represents a reusable style definition for Excel cells.
+ * This class will be part of the external configuration.
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class StyleDefinition {
+    private String fontName;
+    private Short fontSize;
+    private String fontColor; // Hex color string, e.g., "#FF0000" for red
+    private Boolean bold;
+    private Boolean italic;
+
+    private String fillColor; // Hex color string for cell background
+    private String dataFormat; // Excel data format string, e.g., "0.00", "yyyy-mm-dd", "$#,##0.00"
+
+    private CellAlignment horizontalAlignment;
+    private CellAlignment verticalAlignment;
+
+    private Boolean borderTop;
+    private Boolean borderBottom;
+    private Boolean borderLeft;
+    private Boolean borderRight;
+    private String borderColor; // Hex color string for border color
+
+    // Optional: add more styling properties as needed, e.g., wrapText, indentation
+}
+```java
+// src/main/java/com/example/reportservice/config/CellMapping.java
+package com.example.reportservice.config;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import jakarta.validation.constraints.NotBlank;
+
+/**
+ * Defines a mapping for a single cell in an Excel sheet.
+ * This class will be part of the external configuration.
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class CellMapping {
+    @NotBlank(message = "Cell address cannot be blank for cell mapping")
+    private String cellAddress; // e.g., "B5"
+    @NotBlank(message = "Data field cannot be blank for cell mapping")
+    private String dataField;   // e.g., "${reportTitle}"
+    private String styleName;   // Optional: reference to a predefined style
+}
+```java
+// src/main/java/com/example/reportservice/config/ColumnMapping.java
+package com.example.reportservice.config;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import jakarta.validation.constraints.NotBlank;
+
+/**
+ * Defines how a specific field from a data object maps to a column in a table.
+ * This class will be part of the external configuration.
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class ColumnMapping {
+    @NotBlank(message = "Header cannot be blank for column mapping")
+    private String header;      // Column header text
+    @NotBlank(message = "Data field cannot be blank for column mapping")
+    private String dataField;   // Field name in the list object, e.g., "productName" (no ${} needed)
+    private String styleName;   // Optional: style for header cells
+    private String cellStyleName; // Optional: style for data cells in this column
+}
+```java
+// src/main/java/com/example/reportservice/config/TableMapping.java
+package com.example.reportservice.config;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+
+import java.util.List;
+
+/**
+ * Defines a mapping for a tabular block of data in an Excel sheet.
+ * This class will be part of the external configuration.
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class TableMapping {
+    @NotBlank(message = "Start cell address cannot be blank for table mapping")
+    private String startCellAddress; // e.g., "A10"
+    @NotBlank(message = "Data list field cannot be blank for table mapping")
+    private String dataListField;    // e.g., "${productSales}" - must be a List in ReportData
+    private Boolean includeHeader;   // Whether to write the headers defined in columnMappings
+    private String headerStyleName;  // Optional: style for the entire header row
+    @NotEmpty(message = "Column mappings cannot be empty for table mapping")
+    private List<ColumnMapping> columnMappings;
+    private String rowStyleName;     // Optional: style for the entire data rows (if not overridden by columnStyleName)
+}
+```java
+// src/main/java/com/example/reportservice/config/SectionConfig.java
+package com.example.reportservice.config;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
+
+/**
+ * Defines a logical section within an Excel sheet, containing cell and table mappings.
+ * This class will be part of the external configuration.
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class SectionConfig {
+    private String name; // Optional: for identification
+    private List<CellMapping> cellMappings;
+    private List<TableMapping> tableMappings;
+}
+```java
+// src/main/java/com/example/reportservice/config/SheetConfig.java
+package com.example.reportservice.config;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+
+import java.util.List;
+
+/**
+ * Defines the configuration for a single sheet within an Excel workbook.
+ * This class will be part of the external configuration.
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class SheetConfig {
+    @NotBlank(message = "Sheet name cannot be blank")
+    private String sheetName;
+    @NotEmpty(message = "Sheet must have at least one section defined")
+    private List<SectionConfig> sections;
+}
+```java
+// src/main/java/com/example/reportservice/config/ReportConfig.java
+package com.example.reportservice.config;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import jakarta.validation.constraints.NotEmpty;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Top-level configuration for the entire Excel report.
+ * This class defines all sheets, their sections, and reusable styles.
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class ReportConfig {
+    // Map of style names to their definitions
+    private Map<String, StyleDefinition> styles;
+    @NotEmpty(message = "Report must have at least one sheet defined")
+    private List<SheetConfig> sheets;
+}
+```java
+// src/main/java/com/example/reportservice/config/ReportConfigLoader.java
+package com.example.reportservice.config;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.io.InputStream;
+
+/**
+ * Component responsible for loading the report configuration from a JSON file.
+ */
+@Component
+@RequiredArgsConstructor
+@Slf4j
+public class ReportConfigLoader {
+
+    private static final String CONFIG_FILE_PATH = "report-config.json"; // Path to the configuration file in resources
+    private ReportConfig reportConfig;
+
+    /**
+     * Loads the report configuration from the specified JSON file on application startup.
+     * Uses Jackson ObjectMapper to deserialize the JSON into ReportConfig object.
+     */
+    @PostConstruct
+    public void init() {
+        ObjectMapper mapper = new ObjectMapper();
+        // Register JavaTimeModule to handle LocalDate correctly
+        mapper.registerModule(new JavaTimeModule());
+
+        try (InputStream inputStream = new ClassPathResource(CONFIG_FILE_PATH).getInputStream()) {
+            reportConfig = mapper.readValue(inputStream, ReportConfig.class);
+            log.info("Report configuration loaded successfully from {}", CONFIG_FILE_PATH);
+        } catch (IOException e) {
+            log.error("Failed to load report configuration from {}: {}", CONFIG_FILE_PATH, e.getMessage());
+            // Depending on criticality, you might want to throw a custom runtime exception here
+            // to prevent the application from starting if config loading is essential.
+            throw new RuntimeException("Failed to load report configuration", e);
+        }
+    }
+
+    /**
+     * Retrieves the loaded report configuration.
+     *
+     * @return The loaded ReportConfig object.
+     * @throws IllegalStateException if the configuration has not been loaded (should not happen after @PostConstruct)
+     */
+    public ReportConfig getReportConfig() {
+        if (reportConfig == null) {
+            throw new IllegalStateException("Report configuration has not been loaded yet.");
+        }
+        return reportConfig;
+    }
+}
+```java
+// src/main/java/com/example/reportservice/config/CellStyleManager.java
+package com.example.reportservice.config;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFCellStyle;
+import org.apache.poi.xssf.usermodel.XSSFColor;
+import org.apache.poi.xssf.usermodel.XSSFFont;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.stereotype.Component;
+
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Manages and caches Apache POI CellStyle objects based on `StyleDefinition`s.
+ * This ensures that styles are created only once and reused, improving efficiency.
+ */
+@Component
+@Slf4j
+@RequiredArgsConstructor
+public class CellStyleManager {
+
+    private final ReportConfigLoader reportConfigLoader;
+    private final Map<String, CellStyle> cachedStyles = new HashMap<>();
+    private XSSFWorkbook workbook; // Reference to the current workbook to create styles
+
+    /**
+     * Initializes the style manager with a new workbook.
+     * This must be called before requesting any styles for a new report generation.
+     *
+     * @param workbook The XSSFWorkbook for which styles will be created.
+     */
+    public void init(XSSFWorkbook workbook) {
+        this.workbook = workbook;
+        this.cachedStyles.clear(); // Clear cache for new workbook
+        log.info("CellStyleManager initialized for new workbook. Style cache cleared.");
+    }
+
+    /**
+     * Retrieves a cached CellStyle for a given style name. If the style is not
+     * in the cache, it creates it based on the StyleDefinition from the ReportConfig
+     * and adds it to the cache.
+     *
+     * @param styleName The name of the style to retrieve.
+     * @return The CellStyle object, or null if the style name is not found or workbook is not initialized.
+     */
+    public CellStyle getCellStyle(String styleName) {
+        if (styleName == null || styleName.isEmpty()) {
+            return null; // No style requested
+        }
+        if (workbook == null) {
+            log.error("Workbook is not initialized in CellStyleManager. Cannot create or retrieve style: {}", styleName);
+            return null;
+        }
+
+        return cachedStyles.computeIfAbsent(styleName, this::createAndCacheStyle);
+    }
+
+    /**
+     * Creates a new Apache POI CellStyle based on the `StyleDefinition` and caches it.
+     * This method is called by `computeIfAbsent` only when the style is not in the cache.
+     *
+     * @param styleName The name of the style to create.
+     * @return The newly created CellStyle.
+     */
+    private CellStyle createAndCacheStyle(String styleName) {
+        ReportConfig reportConfig = reportConfigLoader.getReportConfig();
+        StyleDefinition styleDef = reportConfig.getStyles().get(styleName);
+
+        if (styleDef == null) {
+            log.warn("Style definition '{}' not found in report configuration. Returning null style.", styleName);
+            return null;
+        }
+
+        log.debug("Creating new CellStyle for: {}", styleName);
+        XSSFCellStyle cellStyle = workbook.createCellStyle();
+
+        // Apply Font styles
+        XSSFFont font = workbook.createFont();
+        if (styleDef.getFontName() != null) {
+            font.setFontName(styleDef.getFontName());
+        }
+        if (styleDef.getFontSize() != null) {
+            font.setFontHeightInPoints(styleDef.getFontSize());
+        }
+        if (styleDef.getFontColor() != null) {
+            try {
+                // Convert hex string to RGB bytes for XSSFColor
+                XSSFColor fontColor = new XSSFColor(java.awt.Color.decode(styleDef.getFontColor()), null);
+                font.setColor(fontColor);
+            } catch (NumberFormatException e) {
+                log.warn("Invalid font color hex string '{}' for style '{}'. Skipping font color.",
+                        styleDef.getFontColor(), styleName);
+            }
+        }
+        if (styleDef.getBold() != null && styleDef.getBold()) {
+            font.setBold(true);
+        }
+        if (styleDef.getItalic() != null && styleDef.getItalic()) {
+            font.setItalic(true);
+        }
+        cellStyle.setFont(font);
+
+        // Apply Fill (background) styles
+        if (styleDef.getFillColor() != null) {
+            try {
+                cellStyle.setFillForegroundColor(new XSSFColor(java.awt.Color.decode(styleDef.getFillColor()), null));
+                cellStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            } catch (NumberFormatException e) {
+                log.warn("Invalid fill color hex string '{}' for style '{}'. Skipping fill color.",
+                        styleDef.getFillColor(), styleName);
+            }
+        }
+
+        // Apply Data Format
+        if (styleDef.getDataFormat() != null) {
+            // CreateDataFormat for built-in and custom formats
+            cellStyle.setDataFormat(workbook.createDataFormat().getFormat(styleDef.getDataFormat()));
+        }
+
+        // Apply Alignment
+        if (styleDef.getHorizontalAlignment() != null) {
+            switch (styleDef.getHorizontalAlignment()) {
+                case LEFT:
+                    cellStyle.setAlignment(HorizontalAlignment.LEFT);
+                    break;
+                case CENTER:
+                    cellStyle.setAlignment(HorizontalAlignment.CENTER);
+                    break;
+                case RIGHT:
+                    cellStyle.setAlignment(HorizontalAlignment.RIGHT);
+                    break;
+                case JUSTIFY:
+                    cellStyle.setAlignment(HorizontalAlignment.JUSTIFY);
+                    break;
+                default:
+                    // Do nothing for other alignments or null
+                    break;
+            }
+        }
+        if (styleDef.getVerticalAlignment() != null) {
+            switch (styleDef.getVerticalAlignment()) {
+                case TOP:
+                    cellStyle.setVerticalAlignment(VerticalAlignment.TOP);
+                    break;
+                case CENTER:
+                    cellStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+                    break;
+                case BOTTOM:
+                    cellStyle.setVerticalAlignment(VerticalAlignment.BOTTOM);
+                    break;
+                case JUSTIFY:
+                    cellStyle.setVerticalAlignment(VerticalAlignment.JUSTIFY);
+                    break;
+                default:
+                    // Do nothing for other alignments or null
+                    break;
+            }
+        }
+
+        // Apply Borders
+        if (styleDef.getBorderTop() != null && styleDef.getBorderTop()) {
+            cellStyle.setBorderTop(BorderStyle.THIN);
+        }
+        if (styleDef.getBorderBottom() != null && styleDef.getBorderBottom()) {
+            cellStyle.setBorderBottom(BorderStyle.THIN);
+        }
+        if (styleDef.getBorderLeft() != null && styleDef.getBorderLeft()) {
+            cellStyle.setBorderLeft(BorderStyle.THIN);
+        }
+        if (styleDef.getBorderRight() != null && styleDef.getBorderRight()) {
+            cellStyle.setBorderRight(BorderStyle.THIN);
+        }
+
+        if (styleDef.getBorderTop() != null || styleDef.getBorderBottom() != null ||
+            styleDef.getBorderLeft() != null || styleDef.getBorderRight() != null) {
+            // Apply border color if any border is set
+            if (styleDef.getBorderColor() != null) {
+                try {
+                    XSSFColor borderColor = new XSSFColor(java.awt.Color.decode(styleDef.getBorderColor()), null);
+                    cellStyle.setBottomBorderColor(borderColor);
+                    cellStyle.setTopBorderColor(borderColor);
+                    cellStyle.setLeftBorderColor(borderColor);
+                    cellStyle.setRightBorderColor(borderColor);
+                } catch (NumberFormatException e) {
+                    log.warn("Invalid border color hex string '{}' for style '{}'. Skipping border color.",
+                            styleDef.getBorderColor(), styleName);
+                }
+            }
+        }
+        return cellStyle;
+    }
+}
+```java
+// src/main/java/com/example/reportservice/service/DataResolverService.java
+package com.example.reportservice.service;
+
+import com.example.reportservice.dto.ReportData;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.expression.Expression;
+import org.springframework.expression.ExpressionParser;
+import org.springframework.expression.spel.standard.SpelExpressionParser;
+import org.springframework.expression.spel.support.StandardEvaluationContext;
+import org.springframework.stereotype.Service;
+
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Service responsible for resolving data from the ReportData DTO using Spring Expression Language (SpEL).
+ * Supports nested field access, map access, and other SpEL features.
+ */
+@Service
+@Slf4j
+public class DataResolverService {
+
+    // Pattern to match placeholders like ${fieldName} or ${nested.fieldName} or ${map.key}
+    // Updated to reflect SpEL expressions within the placeholder
+    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{(.+)}");
+
+    private final ExpressionParser parser = new SpelExpressionParser();
+
+    /**
+     * Resolves a value from the ReportData DTO given a placeholder string.
+     * This method now leverages Spring Expression Language (SpEL) for flexible data resolution.
+     * It handles both top-level ReportData fields and nested properties within objects
+     * or maps, as well as accessing properties of objects within lists.
+     *
+     * @param rootObject The root object from which to resolve the value (e.g., ReportData or a ProductSale object).
+     * @param dataField  The placeholder string (e.g., "${reportTitle}", "${summaryData.totalSales}", "productName").
+     * If the string starts with "${" and ends with "}", it's treated as a SpEL expression.
+     * Otherwise, it's treated as a literal value.
+     * @return The resolved value, or null if the field cannot be found or an error occurs during evaluation.
+     */
+    public Object resolveValue(Object rootObject, String dataField) {
+        if (rootObject == null || dataField == null || dataField.isBlank()) {
+            return null;
+        }
+
+        Matcher matcher = PLACEHOLDER_PATTERN.matcher(dataField);
+        if (matcher.matches()) {
+            String expressionString = matcher.group(1); // Get the content inside ${}
+            try {
+                // Create a StandardEvaluationContext with the root object
+                StandardEvaluationContext context = new StandardEvaluationContext(rootObject);
+                // Parse and evaluate the SpEL expression
+                Expression expression = parser.parseExpression(expressionString);
+                return expression.getValue(context);
+            } catch (Exception e) {
+                log.warn("Error evaluating SpEL expression '{}' against object of type {}: {}",
+                        expressionString, rootObject.getClass().getName(), e.getMessage());
+                return null;
+            }
+        } else {
+            // If it's not a placeholder, return the string itself (e.g., static text)
+            // This also handles cases where a field name is directly passed without ${}
+            // in column mappings, as SpEL can evaluate simple property names.
+            // However, to maintain the distinction for static text, we'll keep it as is.
+            // If it's a field name like "productName" (from ColumnMapping), it implies it should be resolved from `dataObject` (ProductSale)
+            // So we'll try to resolve it as a simple property access using SpEL if it's not a placeholder
+            // AND the rootObject is not ReportData itself, or if it is ReportData and it's not a root field but potentially a nested field like "productName"
+            // This part needs careful consideration for how ColumnMapping's dataField interacts.
+            // The previous logic for `getValueByPath` was used for `dataObject` which is typically a ProductSale object.
+            // Let's modify resolveValue to accept a rootObject.
+            // In ExcelGenerationService, dataResolverService.resolveValue(reportData, ...) is used for CellMappings and TableMappings (to get the list).
+            // dataResolverService.getValueByPath(dataObject, colMapping.getDataField()) was used for individual items in the table.
+            // Now, we'll use resolveValue for both, passing the correct root object.
+
+            // If it's not a placeholder, but it's a field name from a ColumnMapping (e.g., "productName")
+            // it implies we're trying to get a property from the `dataObject` (ProductSale instance).
+            // We can directly evaluate this as a SpEL expression against the `rootObject`.
+            try {
+                StandardEvaluationContext context = new StandardEvaluationContext(rootObject);
+                Expression expression = parser.parseExpression(dataField); // Evaluate the field name directly
+                return expression.getValue(context);
+            } catch (Exception e) {
+                log.warn("Error evaluating potential field name '{}' against object of type {}. Treating as literal. Error: {}",
+                        dataField, rootObject.getClass().getName(), e.getMessage());
+                return dataField; // Fallback to treating as literal if SpEL evaluation fails
+            }
+        }
+    }
+}
+```java
+// src/main/java/com/example/reportservice/service/ExcelGenerationService.java
+package com.example.reportservice.service;
+
+import com.example.reportservice.config.*;
+import com.example.reportservice.dto.ReportData;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.ss.util.CellReference;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.stereotype.Service;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.time.LocalDate;
+import java.util.List;
+
+/**
+ * Service responsible for generating the Excel report using Apache POI based on configuration.
+ * This service is decoupled from the specific ReportData DTO by relying on DataResolverService
+ * to fetch values by path.
+ */
+@Service
+@Slf4j
+@RequiredArgsConstructor
+public class ExcelGenerationService {
+
+    private final ReportConfigLoader reportConfigLoader;
+    private final CellStyleManager cellStyleManager;
+    private final DataResolverService dataResolverService;
+
+    private static final String TEMPLATE_FILE_PATH = "report-template.xlsx"; // Empty template file
+
+    /**
+     * Generates an Excel report based on the provided ReportData and external configuration.
+     *
+     * @param reportData The business data to populate the report.
+     * @return A byte array representing the generated Excel file.
+     * @throws IOException If there's an error reading the template or writing the workbook.
+     */
+    public byte[] generateExcelReport(ReportData reportData) throws IOException {
+        ReportConfig reportConfig = reportConfigLoader.getReportConfig();
+
+        // Load the template workbook
+        try (InputStream templateStream = new ClassPathResource(TEMPLATE_FILE_PATH).getInputStream();
+             XSSFWorkbook workbook = new XSSFWorkbook(templateStream)) {
+
+            cellStyleManager.init(workbook); // Initialize style manager for this workbook
+
+            for (SheetConfig sheetConfig : reportConfig.getSheets()) {
+                Sheet sheet = workbook.getSheet(sheetConfig.getSheetName());
+                if (sheet == null) {
+                    log.warn("Sheet '{}' not found in template. Skipping.", sheetConfig.getSheetName());
+                    continue;
+                }
+                log.info("Processing sheet: {}", sheetConfig.getSheetName());
+                processSheet(sheet, sheetConfig, reportData);
+            }
+
+            // Auto-size columns for all sheets
+            for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
+                Sheet sheet = workbook.getSheetAt(i);
+                if (sheet != null) {
+                    // Using Java Streams for iterating columns and auto-sizing
+                    // Assuming at least one row exists to determine column count
+                    if (sheet.getFirstRowNum() <= sheet.getLastRowNum()) {
+                        sheet.getRow(sheet.getFirstRowNum())
+                             .physicalCells() // Stream of non-null cells
+                             .map(Cell::getColumnIndex)
+                             .forEach(sheet::autoSizeColumn);
+                    }
+                }
+            }
+
+            // Write the workbook to a ByteArrayOutputStream
+            try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+                workbook.write(outputStream);
+                log.info("Excel report generated successfully.");
+                return outputStream.toByteArray();
+            }
+        }
+    }
+
+    /**
+     * Processes a single sheet, iterating through its sections and applying mappings.
+     *
+     * @param sheet       The Apache POI Sheet object.
+     * @param sheetConfig The SheetConfig from the external configuration.
+     * @param reportData  The input ReportData DTO.
+     */
+    private void processSheet(Sheet sheet, SheetConfig sheetConfig, ReportData reportData) {
+        // Using Java Streams to process sections
+        sheetConfig.getSections().stream()
+            .peek(sectionConfig -> log.debug("Processing section: {}", sectionConfig.getName()))
+            .forEach(sectionConfig -> {
+                // Process individual cell mappings
+                if (sectionConfig.getCellMappings() != null) {
+                    sectionConfig.getCellMappings().forEach(cellMapping -> processCellMapping(sheet, cellMapping, reportData));
+                }
+
+                // Process table mappings
+                if (sectionConfig.getTableMappings() != null) {
+                    sectionConfig.getTableMappings().forEach(tableMapping -> processTableMapping(sheet, tableMapping, reportData));
+                }
+            });
+    }
+
+    /**
+     * Applies a single cell mapping: resolves data and sets cell value and style.
+     *
+     * @param sheet       The Apache POI Sheet object.
+     * @param cellMapping The CellMapping from the configuration.
+     * @param reportData  The input ReportData DTO.
+     */
+    private void processCellMapping(Sheet sheet, CellMapping cellMapping, ReportData reportData) {
+        try {
+            CellReference cellRef = new CellReference(cellMapping.getCellAddress());
+            Row row = sheet.getRow(cellRef.getRow());
+            if (row == null) {
+                row = sheet.createRow(cellRef.getRow());
+            }
+            Cell cell = row.getCell(cellRef.getCol());
+            if (cell == null) {
+                cell = row.createCell(cellRef.getCol());
+            }
+
+            // Use the updated dataResolverService.resolveValue with reportData as root
+            Object value = dataResolverService.resolveValue(reportData, cellMapping.getDataField());
+            setCellValue(cell, value);
+
+            if (cellMapping.getStyleName() != null) {
+                CellStyle style = cellStyleManager.getCellStyle(cellMapping.getStyleName());
+                if (style != null) {
+                    cell.setCellStyle(style);
+                }
+            }
+            log.debug("Cell {} updated with value '{}' and style '{}'.", cellMapping.getCellAddress(), value, cellMapping.getStyleName());
+        } catch (Exception e) {
+            log.error("Error processing cell mapping for address {}: {}", cellMapping.getCellAddress(), e.getMessage());
+        }
+    }
+
+    /**
+     * Processes a table mapping: populates tabular data starting from a given cell.
+     *
+     * @param sheet       The Apache POI Sheet object.
+     * @param tableMapping The TableMapping from the configuration.
+     * @param reportData  The input ReportData DTO.
+     */
+    private void processTableMapping(Sheet sheet, TableMapping tableMapping, ReportData reportData) {
+        try {
+            CellReference startCellRef = new CellReference(tableMapping.getStartCellAddress());
+            int currentRowNum = startCellRef.getRow();
+
+            // Resolve the list of objects for the table using the updated dataResolverService
+            // The dataListField should be a SpEL expression that resolves to a List
+            List<?> dataList = (List<?>) dataResolverService.resolveValue(reportData, tableMapping.getDataListField());
+
+            if (dataList == null || dataList.isEmpty()) {
+                log.warn("Data list for table mapping '{}' is null or empty. Skipping table.", tableMapping.getDataListField());
+                return;
+            }
+
+            // Write header row if configured
+            if (tableMapping.getIncludeHeader() != null && tableMapping.getIncludeHeader()) {
+                Row headerRow = sheet.getRow(currentRowNum);
+                if (headerRow == null) {
+                    headerRow = sheet.createRow(currentRowNum);
+                }
+                CellStyle headerRowStyle = cellStyleManager.getCellStyle(tableMapping.getHeaderStyleName());
+
+                // Using Java Streams for writing header cells
+                tableMapping.getColumnMappings().stream().forEach(colMapping -> {
+                    int columnIndex = tableMapping.getColumnMappings().indexOf(colMapping); // Get current column index
+                    Cell headerCell = headerRow.createCell(startCellRef.getCol() + columnIndex);
+                    headerCell.setCellValue(colMapping.getHeader());
+
+                    CellStyle headerColStyle = cellStyleManager.getCellStyle(colMapping.getStyleName());
+                    if (headerColStyle != null) {
+                        headerCell.setCellStyle(headerColStyle);
+                    } else if (headerRowStyle != null) {
+                        headerCell.setCellStyle(headerRowStyle);
+                    }
+                });
+                currentRowNum++; // Move to next row for data
+                log.debug("Table header written for data list: {}", tableMapping.getDataListField());
+            }
+
+            // Write data rows
+            CellStyle defaultRowStyle = cellStyleManager.getCellStyle(tableMapping.getRowStyleName());
+            for (Object dataObject : dataList) { // Stream dataList if transformations were needed
+                Row dataRow = sheet.getRow(currentRowNum);
+                if (dataRow == null) {
+                    dataRow = sheet.createRow(currentRowNum);
+                }
+
+                // Using Java Streams for writing data cells in a row
+                tableMapping.getColumnMappings().stream().forEach(colMapping -> {
+                    int columnIndex = tableMapping.getColumnMappings().indexOf(colMapping); // Get current column index
+                    Cell dataCell = dataRow.createCell(startCellRef.getCol() + columnIndex);
+
+                    // Resolve value for the current column from the dataObject using SpEL
+                    // Here, dataObject (e.g., ProductSale) is the root for this expression
+                    Object value = dataResolverService.resolveValue(dataObject, colMapping.getDataField());
+                    setCellValue(dataCell, value);
+
+                    // Apply style: column style takes precedence, then row style
+                    CellStyle cellColStyle = cellStyleManager.getCellStyle(colMapping.getCellStyleName());
+                    if (cellColStyle != null) {
+                        dataCell.setCellStyle(cellColStyle);
+                    } else if (defaultRowStyle != null) {
+                        dataCell.setCellStyle(defaultRowStyle);
+                    }
+                });
+                currentRowNum++; // Move to next row
+            }
+            log.info("Table data populated for data list: {} starting at {}", tableMapping.getDataListField(), tableMapping.getStartCellAddress());
+        } catch (Exception e) {
+            log.error("Error processing table mapping for data list {}: {}", tableMapping.getDataListField(), e.getMessage());
+        }
+    }
+
+    /**
+     * Sets the cell value based on its type. Handles String, Number, Boolean, LocalDate.
+     *
+     * @param cell  The Apache POI Cell object.
+     * @param value The value to set.
+     */
+    private void setCellValue(Cell cell, Object value) {
+        if (value == null) {
+            cell.setCellValue(""); // Set empty string for null values
+        } else if (value instanceof String) {
+            cell.setCellValue((String) value);
+        } else if (value instanceof Number) {
+            cell.setCellValue(((Number) value).doubleValue());
+        } else if (value instanceof Boolean) {
+            cell.setCellValue((Boolean) value);
+        } else if (value instanceof LocalDate) {
+            // For LocalDate, set it as a Java Date object; apply a date format style via config
+            cell.setCellValue(java.sql.Date.valueOf((LocalDate) value));
+        } else {
+            // Fallback for other types, convert to string
+            cell.setCellValue(value.toString());
+            log.warn("Unsupported data type for cell value: {}. Converting to String.", value.getClass().getName());
+        }
+    }
+}
+```java
+// src/main/java/com/example/reportservice/controller/ReportController.java
+package com.example.reportservice.controller;
+
+import com.example.reportservice.dto.ReportData;
+import com.example.reportservice.service.ExcelGenerationService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.io.IOException;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+
+/**
+ * REST Controller for generating Excel reports.
+ * Exposes a POST endpoint to trigger report generation.
+ */
+@RestController
+@RequestMapping("/api/reports")
+@RequiredArgsConstructor
+@Slf4j
+public class ReportController {
+
+    private final ExcelGenerationService excelGenerationService;
+
+    /**
+     * POST endpoint to generate an Excel report.
+     *
+     * @param reportData The business data payload for the report.
+     * @return ResponseEntity containing the generated Excel file as a byte array.
+     */
+    @PostMapping("/generate")
+    public ResponseEntity<Resource> generateReport(@Valid @RequestBody ReportData reportData) {
+        log.info("Received request to generate report for title: {}", reportData.getReportTitle());
+        try {
+            byte[] excelBytes = excelGenerationService.generateExcelReport(reportData);
+
+            String filename = String.format("%s_Report_%s.xlsx",
+                    reportData.getReportTitle().replaceAll("[^a-zA-Z0-9_]", "_"),
+                    LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
+
+            ByteArrayResource resource = new ByteArrayResource(excelBytes);
+
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                    .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                    .body(resource);
+
+        } catch (IOException e) {
+            log.error("Error generating Excel report: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        } catch (Exception e) {
+            log.error("An unexpected error occurred during report generation: {}", e.getMessage(), e);
+            return ResponseEntity.badRequest().build(); // Or a more specific error response
+        }
+    }
+}
+```java
+// src/main/resources/application.properties
+# Spring Boot application properties
+server.port=8080
+logging.level.com.example.reportservice=INFO
+```json
+// src/main/resources/report-config.json
+{
+  "styles": {
+    "headerStyle": {
+      "fontName": "Inter",
+      "fontSize": 14,
+      "bold": true,
+      "fontColor": "#FFFFFF",
+      "fillColor": "#4CAF50",
+      "horizontalAlignment": "CENTER",
+      "verticalAlignment": "CENTER",
+      "borderTop": true,
+      "borderBottom": true,
+      "borderLeft": true,
+      "borderRight": true,
+      "borderColor": "#333333"
+    },
+    "titleStyle": {
+      "fontName": "Inter",
+      "fontSize": 24,
+      "bold": true,
+      "fontColor": "#1A237E",
+      "horizontalAlignment": "CENTER"
+    },
+    "subTitleStyle": {
+      "fontName": "Inter",
+      "fontSize": 16,
+      "bold": true,
+      "fontColor": "#3F51B5",
+      "horizontalAlignment": "LEFT"
+    },
+    "dataStyle": {
+      "fontName": "Inter",
+      "fontSize": 10,
+      "fontColor": "#212121",
+      "horizontalAlignment": "LEFT",
+      "borderBottom": true,
+      "borderColor": "#EEEEEE"
+    },
+    "currencyStyle": {
+      "fontName": "Inter",
+      "fontSize": 10,
+      "fontColor": "#212121",
+      "dataFormat": "$#,##0.00",
+      "horizontalAlignment": "RIGHT",
+      "borderBottom": true,
+      "borderColor": "#EEEEEE"
+    },
+    "dateStyle": {
+      "fontName": "Inter",
+      "fontSize": 10,
+      "fontColor": "#212121",
+      "dataFormat": "yyyy-mm-dd",
+      "horizontalAlignment": "CENTER",
+      "borderBottom": true,
+      "borderColor": "#EEEEEE"
+    },
+    "summaryKeyStyle": {
+      "fontName": "Inter",
+      "fontSize": 12,
+      "bold": true,
+      "fontColor": "#424242",
+      "horizontalAlignment": "RIGHT"
+    },
+    "summaryValueStyle": {
+      "fontName": "Inter",
+      "fontSize": 12,
+      "fontColor": "#212121",
+      "horizontalAlignment": "LEFT",
+      "borderBottom": true,
+      "borderColor": "#BDBDBD"
+    }
+  },
+  "sheets": [
+    {
+      "sheetName": "Summary Report",
+      "sections": [
+        {
+          "name": "Report Header",
+          "cellMappings": [
+            {
+              "cellAddress": "A1",
+              "dataField": "${reportTitle}",
+              "styleName": "titleStyle"
+            },
+            {
+              "cellAddress": "A3",
+              "dataField": "Report For: ${department}",
+              "styleName": "subTitleStyle"
+            },
+            {
+              "cellAddress": "A4",
+              "dataField": "Generated On: ${generationDate}",
+              "styleName": "subTitleStyle"
+            }
+          ]
+        },
+        {
+          "name": "Sales Data Table",
+          "tableMappings": [
+            {
+              "startCellAddress": "A7",
+              "dataListField": "${productSales}",
+              "includeHeader": true,
+              "headerStyleName": "headerStyle",
+              "rowStyleName": "dataStyle",
+              "columnMappings": [
+                {
+                  "header": "Product Name",
+                  "dataField": "productName",
+                  "cellStyleName": "dataStyle"
+                },
+                {
+                  "header": "Category",
+                  "dataField": "category",
+                  "cellStyleName": "dataStyle"
+                },
+                {
+                  "header": "Quantity",
+                  "dataField": "quantity",
+                  "cellStyleName": "dataStyle"
+                },
+                {
+                  "header": "Unit Price",
+                  "dataField": "unitPrice",
+                  "cellStyleName": "currencyStyle"
+                },
+                {
+                  "header": "Sale Date",
+                  "dataField": "saleDate",
+                  "cellStyleName": "dateStyle"
+                },
+                {
+                  "header": "Total Sale",
+                  "dataField": "totalSale",
+                  "cellStyleName": "currencyStyle"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Summary Data",
+          "cellMappings": [
+            {
+              "cellAddress": "E3",
+              "dataField": "Total Products:",
+              "styleName": "summaryKeyStyle"
+            },
+            {
+              "cellAddress": "F3",
+              "dataField": "${summaryData.totalProducts}",
+              "styleName": "summaryValueStyle"
+            },
+            {
+              "cellAddress": "E4",
+              "dataField": "Total Sales Revenue:",
+              "styleName": "summaryKeyStyle"
+            },
+            {
+              "cellAddress": "F4",
+              "dataField": "${summaryData.totalRevenue}",
+              "styleName": "currencyStyle"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```json
+// src/main/resources/example-report-payload.json
+{
+  "reportTitle": "Quarterly Sales Performance",
+  "department": "Sales & Marketing",
+  "generationDate": "2024-06-10",
+  "productSales": [
+    {
+      "productName": "Laptop Pro X",
+      "category": "Electronics",
+      "quantity": 10,
+      "unitPrice": 1200.50,
+      "saleDate": "2024-03-15"
+    },
+    {
+      "productName": "Ergonomic Chair",
+      "category": "Office Furniture",
+      "quantity": 25,
+      "unitPrice": 250.00,
+      "saleDate": "2024-03-20"
+    },
+    {
+      "productName": "Wireless Mouse",
+      "category": "Accessories",
+      "quantity": 100,
+      "unitPrice": 25.99,
+      "saleDate": "2024-04-01"
+    },
+    {
+      "productName": "4K Monitor",
+      "category": "Electronics",
+      "quantity": 8,
+      "unitPrice": 450.75,
+      "saleDate": "2024-04-10"
+    },
+    {
+      "productName": "Desk Organizer",
+      "category": "Office Supplies",
+      "quantity": 50,
+      "unitPrice": 15.00,
+      "saleDate": "2024-05-01"
+    }
+  ],
+  "summaryData": {
+    "totalProducts": 5,
+    "totalRevenue": 19500.00
+  }
+}
